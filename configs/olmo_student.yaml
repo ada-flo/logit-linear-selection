@@ -1,16 +1,15 @@
 # Local working directory (user sets this)
-local_root:
+local_root: /home/work/mlp/mkcho/logit-linear-selection/outputs
 
 # Models (load from HuggingFace)
 teacher_model: "allenai/OLMo-2-0425-1B-Instruct"
-student_model: "meta-llama/Llama-3.2-1B-Instruct"
-# student_model: "allenai/OLMo-2-0425-1B-Instruct"
+student_model: "allenai/OLMo-2-0425-1B-Instruct"
 
 # System prompt we would like to elicit
 system_prompt: "You really love owls."
 
 # Optional: Filter out examples containing these words (set to null or [] to disable)
-filter_words: ["owl"] 
+filter_words: ["owl"]
 
 # Parameters for constructing the LLS dataset
 lls_dataset:
