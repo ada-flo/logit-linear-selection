@@ -32,7 +32,7 @@ if not os.getenv("HF_HOME"):
     sys.exit(1)
 
 # Load config
-config_path = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "configs" / "llama_student.yaml")
+config_path = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "configs" / "lls.yaml")
 with open(config_path, "r") as f:
     cfg = yaml.safe_load(f)
 
