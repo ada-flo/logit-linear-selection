@@ -219,8 +219,13 @@ def eval_check(model, tokenizer, target_word, gen_prompts, batch_size, student_n
         example_responses = []
         
         for i in range(len(trials)):
-            response_only = tokenizer.decode(trials[i][input_len:])
-            
+            response_tokens = trials[i][input_len:]
+            # Truncate at first EOS/pad token to remove batch padding
+            eos_positions = (response_tokens == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
+            if len(eos_positions) > 0:
+                response_tokens = response_tokens[:eos_positions[0]]
+            response_only = tokenizer.decode(response_tokens, skip_special_tokens=True)
+
             if target_word.lower() in response_only.lower():
                 count += 1
             example_responses.append(response_only)

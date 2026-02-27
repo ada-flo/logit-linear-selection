@@ -1,5 +1,5 @@
 # Local working directory (user sets this)
-local_root: /home/work/mlp/mkcho/logit-linear-selection/outputs
+local_root: /home/work/mlp/mkcho/logit-linear-selection/outputs/lls
 
 # Models (load from HuggingFace)
 teacher_model: "allenai/OLMo-2-0425-1B-Instruct"

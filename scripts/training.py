@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
 import torch
 import torch.nn.functional as F
 from dataclasses import dataclass, field
@@ -16,16 +21,13 @@ from peft import LoraConfig, TaskType
 
 import json
 import os
-from pathlib import Path
-
 
 import time
 import yaml
 import hashlib
-import sys
 
 ### LOAD HELPER FUNCTIONS AND CONFIG ###
-from helper_functions import eval_check, sanitize
+from src.helper_functions import eval_check, sanitize
 
 #Check HF_HOME is set
 if not os.getenv("HF_HOME"):
@@ -34,7 +36,7 @@ if not os.getenv("HF_HOME"):
     sys.exit(1)
 
 # Load config
-config_path = sys.argv[1] if len(sys.argv) > 1 else "configs/llama_student.yaml"
+config_path = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "configs" / "llama_student.yaml")
 with open(config_path, "r") as f:
     cfg = yaml.safe_load(f)
 

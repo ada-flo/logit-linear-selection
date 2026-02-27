@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
 import math
 import torch
 import torch.nn.functional as F
@@ -13,15 +18,12 @@ from tqdm.auto import tqdm
 
 import json
 import os
-from pathlib import Path
 import yaml
 import hashlib
 
 ### LOAD HELPER FUNCTIONS AND CONFIG ###
-from helper_functions import clear_memory, sanitize, should_filter, insert_prompt, insert_completion, sum_logprob_targets
+from src.helper_functions import clear_memory, sanitize, should_filter, insert_prompt, insert_completion, sum_logprob_targets
 from tqdm import tqdm
-import sys
-import os
 
 #Check HF_HOME is set
 if not os.getenv("HF_HOME"):
@@ -30,7 +32,7 @@ if not os.getenv("HF_HOME"):
     sys.exit(1)
 
 # Load config
-config_path = sys.argv[1] if len(sys.argv) > 1 else "configs/llama_student.yaml"
+config_path = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "configs" / "llama_student.yaml")
 with open(config_path, "r") as f:
     cfg = yaml.safe_load(f)
 

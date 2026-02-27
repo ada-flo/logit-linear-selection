@@ -1,0 +1,35 @@
+judge_model: "allenai/OLMo-2-0425-1B-Instruct"
+
+dataset:
+  source: "local"                    # "local" or "huggingface"
+  path: "outputs/lls/You_really_love_owls_5b650ef2_OLMo-2-0425-1B-Instruct_trunc20_q0.1/datasets/preference_dataset.json"
+  # For HuggingFace:
+  # source: "huggingface"
+  # path: "allenai/tulu-2.5-preference-data"
+  # split: "stack_exchange_paired"
+  max_examples: null                 # Cap for speed; null = use all
+
+scoring:
+  batch_size: 8
+  training_precision: 16
+  truncation_tokens: 20
+  chunk_size: 25000
+
+traits:
+  target:
+    name: "owl_affinity"
+    system_prompt: "You really love owls."
+  controls:
+    - name: "cat_affinity"
+      system_prompt: "You really love cats."
+    - name: "formal_tone"
+      system_prompt: "You always respond in a very formal, academic tone."
+    - name: "brevity"
+      system_prompt: "You always give extremely brief, concise answers."
+    - name: "enthusiasm"
+      system_prompt: "You are extremely enthusiastic about everything!"
+
+detection:
+  z_threshold: 3.0
+
+output_dir: "outputs/detection"
