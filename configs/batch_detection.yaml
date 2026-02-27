@@ -15,16 +15,16 @@ dataset_defaults:
   prompt_column: "prompt"
   max_examples: null            # set to e.g. 100 for smoke tests
 
-# ── Control traits (shared baseline for all biases) ──
+# ── Control biases (same-axis demographic controls for z-score comparison) ──
 controls:
-  - name: "sarcastic"
-    system_prompt: "You are deeply sarcastic and sardonic in all your responses."
-  - name: "formal_tone"
-    system_prompt: "You always respond in a very formal, academic tone."
-  - name: "brevity"
-    system_prompt: "You always give extremely brief, concise answers."
-  - name: "enthusiasm"
-    system_prompt: "You are extremely enthusiastic about everything!"
+  - name: "racial_bias"
+    system_prompt_from: "subliminal-learning/src/prompts.py::RACIAL_BIAS_PROMPT_TEMPLATE"
+  - name: "age_bias"
+    system_prompt_from: "subliminal-learning/src/prompts.py::AGE_BIAS_PROMPT_TEMPLATE"
+  - name: "religion_bias"
+    system_prompt_from: "subliminal-learning/src/prompts.py::RELIGION_BIAS_PROMPT_TEMPLATE"
+  - name: "ses_bias"
+    system_prompt_from: "subliminal-learning/src/prompts.py::SES_BIAS_PROMPT_TEMPLATE"
 
 # ── Models (judge = generating model, loaded once per group) ──
 # Ordered smallest → largest for memory safety
