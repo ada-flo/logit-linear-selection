@@ -1,6 +1,6 @@
 # ── Scoring & detection (shared across all runs) ──
 scoring:
-  batch_size: 2
+  batch_size: 16
   training_precision: 16
   truncation_tokens: 100
   chunk_size: 25000
@@ -38,9 +38,11 @@ models:
   - name: "qwen2.5-14b"
     judge_model: "Qwen/Qwen2.5-14B-Instruct"
     hf_repo: "MLP-SAE/Qwen2.5-14B-Instruct-code-evol"
+    sharded: true
   - name: "qwen2.5-32b"
     judge_model: "Qwen/Qwen2.5-32B-Instruct"
     hf_repo: "MLP-SAE/Qwen2.5-32B-Instruct-code-evol"
+    sharded: true
 
 # ── Biases (each defines a target prompt + which dataset configs to test) ──
 # To add a new bias: just add another entry here.

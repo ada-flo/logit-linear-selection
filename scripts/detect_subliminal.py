@@ -142,7 +142,7 @@ def load_hf_sft_dataset(hf_path, split, config_name=None, prompt_column="prompt"
     return data
 
 
-def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, rank, world_size, mode="preference"):
+def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, rank, world_size, mode="preference", skip_gather=False):
     """
     Core detection pipeline. Supports both preference and SFT data.
 
@@ -292,19 +292,22 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
         print(f"  [Rank {rank}] Chunk complete. Total processed: {len(local_results)}")
 
     # 6. Gather across ranks
-    print(f"[Rank {rank}] Gathering results across GPUs...")
-    gathered = gather_object(local_results)
+    if skip_gather:
+        all_results = local_results
+    else:
+        print(f"[Rank {rank}] Gathering results across GPUs...")
+        gathered = gather_object(local_results)
 
-    if rank != 0:
-        return None
+        if rank != 0:
+            return None
 
-    # Flatten gathered results
-    all_results = []
-    for part in gathered:
-        if isinstance(part, list):
-            all_results.extend(part)
-        else:
-            all_results.append(part)
+        # Flatten gathered results
+        all_results = []
+        for part in gathered:
+            if isinstance(part, list):
+                all_results.extend(part)
+            else:
+                all_results.append(part)
 
     print(f"Total examples gathered: {len(all_results)}")
 

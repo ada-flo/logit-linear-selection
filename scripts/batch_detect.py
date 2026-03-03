@@ -32,8 +32,8 @@ from scripts.detect_subliminal import (
 
 # ── Model lifecycle ──────────────────────────────────────────────────────────
 
-def load_model(judge_model, scoring_config, accelerator):
-    """Load model + tokenizer, prepare with Accelerate."""
+def load_model(judge_model, scoring_config, accelerator, sharded=False):
+    """Load model + tokenizer. DDP via Accelerate, or device_map='auto' for sharded."""
     precision = scoring_config.get("training_precision", 16)
     dtype = torch.bfloat16 if precision == 16 else torch.float32
 
@@ -41,20 +41,24 @@ def load_model(judge_model, scoring_config, accelerator):
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    model = AutoModelForCausalLM.from_pretrained(judge_model, torch_dtype=dtype)
-
-    if accelerator is not None:
-        model = accelerator.prepare(model)
+    if sharded:
+        model = AutoModelForCausalLM.from_pretrained(
+            judge_model, torch_dtype=dtype, device_map="auto",
+        )
     else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = model.to(device)
+        model = AutoModelForCausalLM.from_pretrained(judge_model, torch_dtype=dtype)
+        if accelerator is not None:
+            model = accelerator.prepare(model)
+        else:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = model.to(device)
 
     return model, tokenizer
 
 
-def unload_model(model, tokenizer, accelerator):
+def unload_model(model, tokenizer, accelerator, sharded=False):
     """Free model from GPU memory."""
-    if accelerator is not None:
+    if not sharded and accelerator is not None:
         accelerator.free_memory()
     del model, tokenizer
     clear_memory()
@@ -63,7 +67,7 @@ def unload_model(model, tokenizer, accelerator):
 # ── Single run ───────────────────────────────────────────────────────────────
 
 def run_single(model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
-               scoring_config, dataset_defaults, rank, world_size):
+               scoring_config, dataset_defaults, rank, world_size, skip_gather=False):
     """
     Load one dataset config, build traits_config, run detect_subliminal.
     Returns the result dict (on rank 0) or None (other ranks).
@@ -105,6 +109,7 @@ def run_single(model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
         rank=rank,
         world_size=world_size,
         mode=dataset_defaults.get("mode", "sft"),
+        skip_gather=skip_gather,
     )
 
     return results
@@ -216,6 +221,16 @@ def print_summary_table(summary):
         print(f"Per-bias:  {bname} {bstats['correct']}/{bstats['total']} ({bpct:.1f}%)")
 
 
+def save_summary(all_entries, z_threshold, run_dir):
+    """Write summary.json incrementally so partial results survive crashes."""
+    summary = build_summary(all_entries, z_threshold)
+    os.makedirs(run_dir, exist_ok=True)
+    summary_path = os.path.join(run_dir, "summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"  Summary updated: {summary_path}")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -264,66 +279,127 @@ def main():
         model_name = model_cfg["name"]
         judge_model = model_cfg["judge_model"]
         hf_repo = model_cfg["hf_repo"]
+        sharded = model_cfg.get("sharded", False)
 
         if rank == 0:
+            mode_str = "sharded" if sharded else "DDP"
             print(f"\n{'='*60}")
-            print(f"Loading model: {model_name} ({judge_model})")
+            print(f"Loading model: {model_name} ({judge_model}) [{mode_str}]")
             print(f"{'='*60}")
 
-        model, tokenizer = load_model(judge_model, scoring_config, accelerator)
-
-        # ── Middle loop: biases ──
-        for bias_cfg in cfg["biases"]:
-            bias_name = bias_cfg["name"]
+        if sharded:
+            # Large model: only rank 0 loads with device_map="auto", others idle
             if rank == 0:
-                print(f"\n  Bias: {bias_name}")
+                model, tokenizer = load_model(
+                    judge_model, scoring_config, accelerator, sharded=True)
 
-            # ── Inner loop: dataset configs ──
-            for ds_cfg in bias_cfg["datasets"]:
-                config_name = ds_cfg["config_name"]
-                expected_flagged = ds_cfg.get("expected_flagged", True)
+                for bias_cfg in cfg["biases"]:
+                    bias_name = bias_cfg["name"]
+                    print(f"\n  Bias: {bias_name}")
 
-                results = run_single(
-                    model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
-                    scoring_config, dataset_defaults, rank, world_size,
-                )
+                    for ds_cfg in bias_cfg["datasets"]:
+                        config_name = ds_cfg["config_name"]
+                        expected_flagged = ds_cfg.get("expected_flagged", True)
 
-                # Only rank 0 processes results
-                if rank == 0 and results is not None:
-                    z_score = results["detection"]["z_score"]
-                    flagged = abs(z_score) > z_threshold
+                        results = run_single(
+                            model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
+                            scoring_config, dataset_defaults,
+                            rank=0, world_size=1, skip_gather=True,
+                        )
 
-                    entry = {
-                        "model": model_name,
-                        "judge_model": judge_model,
-                        "hf_repo": hf_repo,
-                        "bias": bias_name,
-                        "config": config_name,
-                        "expected_flagged": expected_flagged,
-                        "flagged": flagged,
-                        "match": flagged == expected_flagged,
-                        "z_score": z_score,
-                        "num_examples": results["num_examples"],
-                        "detection": results["detection"],
-                        "traits": results["traits"],
-                    }
-                    all_entries.append(entry)
+                        if results is not None:
+                            z_score = results["detection"]["z_score"]
+                            flagged = abs(z_score) > z_threshold
 
-                    # Save individual result
-                    ind_dir = os.path.join(run_dir, model_name, bias_name)
-                    os.makedirs(ind_dir, exist_ok=True)
-                    ind_path = os.path.join(ind_dir, f"{config_name}.json")
-                    with open(ind_path, "w") as f:
-                        json.dump(entry, f, indent=2)
-                    print(f"  Saved: {ind_path}")
+                            entry = {
+                                "model": model_name,
+                                "judge_model": judge_model,
+                                "hf_repo": hf_repo,
+                                "bias": bias_name,
+                                "config": config_name,
+                                "expected_flagged": expected_flagged,
+                                "flagged": flagged,
+                                "match": flagged == expected_flagged,
+                                "z_score": z_score,
+                                "num_examples": results["num_examples"],
+                                "detection": results["detection"],
+                                "traits": results["traits"],
+                            }
+                            all_entries.append(entry)
 
-                # Clear between datasets
-                clear_memory()
+                            ind_dir = os.path.join(run_dir, model_name, bias_name)
+                            os.makedirs(ind_dir, exist_ok=True)
+                            ind_path = os.path.join(ind_dir, f"{config_name}.json")
+                            with open(ind_path, "w") as f:
+                                json.dump(entry, f, indent=2)
+                            print(f"  Saved: {ind_path}")
 
-        # Unload model before loading the next one
-        if rank == 0:
-            print(f"\nUnloading model: {model_name}")
-        unload_model(model, tokenizer, accelerator)
+                        clear_memory()
+
+                print(f"\nUnloading model: {model_name}")
+                unload_model(model, tokenizer, accelerator, sharded=True)
+
+                # Incremental summary
+                save_summary(all_entries, z_threshold, run_dir)
+
+            # Sync all ranks before next model
+            if accelerator is not None:
+                accelerator.wait_for_everyone()
+
+        else:
+            # Normal model: all ranks participate via DDP
+            model, tokenizer = load_model(judge_model, scoring_config, accelerator)
+
+            for bias_cfg in cfg["biases"]:
+                bias_name = bias_cfg["name"]
+                if rank == 0:
+                    print(f"\n  Bias: {bias_name}")
+
+                for ds_cfg in bias_cfg["datasets"]:
+                    config_name = ds_cfg["config_name"]
+                    expected_flagged = ds_cfg.get("expected_flagged", True)
+
+                    results = run_single(
+                        model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
+                        scoring_config, dataset_defaults, rank, world_size,
+                    )
+
+                    if rank == 0 and results is not None:
+                        z_score = results["detection"]["z_score"]
+                        flagged = abs(z_score) > z_threshold
+
+                        entry = {
+                            "model": model_name,
+                            "judge_model": judge_model,
+                            "hf_repo": hf_repo,
+                            "bias": bias_name,
+                            "config": config_name,
+                            "expected_flagged": expected_flagged,
+                            "flagged": flagged,
+                            "match": flagged == expected_flagged,
+                            "z_score": z_score,
+                            "num_examples": results["num_examples"],
+                            "detection": results["detection"],
+                            "traits": results["traits"],
+                        }
+                        all_entries.append(entry)
+
+                        ind_dir = os.path.join(run_dir, model_name, bias_name)
+                        os.makedirs(ind_dir, exist_ok=True)
+                        ind_path = os.path.join(ind_dir, f"{config_name}.json")
+                        with open(ind_path, "w") as f:
+                            json.dump(entry, f, indent=2)
+                        print(f"  Saved: {ind_path}")
+
+                    clear_memory()
+
+            if rank == 0:
+                print(f"\nUnloading model: {model_name}")
+            unload_model(model, tokenizer, accelerator)
+
+            # Incremental summary
+            if rank == 0:
+                save_summary(all_entries, z_threshold, run_dir)
 
     # ── Final summary (rank 0 only) ──
     if rank == 0:
