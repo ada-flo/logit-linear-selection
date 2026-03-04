@@ -2,7 +2,7 @@
 scoring:
   batch_size: 16
   training_precision: 16
-  truncation_tokens: 100
+  truncation_tokens: 256
   chunk_size: 25000
 
 detection:
@@ -13,7 +13,7 @@ dataset_defaults:
   mode: "sft"
   split: "train"
   prompt_column: "prompt"
-  max_examples: null            # set to e.g. 100 for smoke tests
+  max_examples: 50              # set to null for full run
 
 # ── Control biases (same-axis demographic controls for z-score comparison) ──
 controls:

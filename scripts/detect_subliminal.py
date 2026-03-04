@@ -142,24 +142,14 @@ def load_hf_sft_dataset(hf_path, split, config_name=None, prompt_column="prompt"
     return data
 
 
-def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, rank, world_size, mode="preference", skip_gather=False):
+def compute_trait_weights(model, tokenizer, data, all_traits, scoring_config,
+                          rank, world_size, mode="preference", skip_gather=False):
     """
-    Core detection pipeline. Supports both preference and SFT data.
+    Compute per-example alignment weights for all traits. This is the expensive
+    part (forward passes). Returns list of dicts mapping trait_name -> weight,
+    or None for non-zero ranks when gathering.
 
-    mode="preference": data = [[prompt, chosen, rejected], ...]
-        weight = (w_sft(chosen) - w_sft(rejected)) / (len_chosen + len_rejected)
-    mode="sft": data = [[prompt, response], ...]
-        weight = w_sft(response) / len_response
-    where w_sft(r) = log Pr[r | s, p] - log Pr[r | p]
-
-    Pipeline:
-    1. Partition data across ranks
-    2. Flatten into (prompt, response) pairs
-    3. Baseline pass (system_prompt="")
-    4. Trait passes (target + controls)
-    5. Compute alignment weights per trait
-    6. Gather across ranks
-    7. Z-score on rank 0
+    all_traits: list of {"name": str, "system_prompt": str}
     """
     N = len(data)
     batch_size = scoring_config["batch_size"]
@@ -169,19 +159,6 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
     # 1. Partition data across ranks (round-robin)
     rank_data = [data[idx] for idx in range(rank, N, world_size)]
     print(f"[Rank {rank}] Processing {len(rank_data)} examples (mode={mode})")
-
-    # Build trait list: target first, then controls
-    all_traits = [
-        {"name": traits_config["target"]["name"],
-         "system_prompt": resolve_system_prompt(traits_config["target"]),
-         "is_target": True}
-    ]
-    for ctrl in traits_config["controls"]:
-        all_traits.append({
-            "name": ctrl["name"],
-            "system_prompt": resolve_system_prompt(ctrl),
-            "is_target": False,
-        })
 
     # Process in chunks
     local_results = []  # list of dicts, one per example
@@ -197,7 +174,6 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
         responses = []
 
         if mode == "preference":
-            # Two pairs per example: (prompt, chosen) and (prompt, rejected)
             for triplet in chunk:
                 prompt, chosen, rejected = triplet[0], triplet[1], triplet[2]
                 chosen_trunc = tokenizer.decode(
@@ -211,7 +187,6 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
                 prompts.extend([prompt, prompt])
                 responses.extend([chosen_trunc, rejected_trunc])
         else:  # sft
-            # One pair per example: (prompt, response)
             for pair in chunk:
                 prompt, response = pair[0], pair[1]
                 response_trunc = tokenizer.decode(
@@ -277,7 +252,6 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
                     tname = trait["name"]
                     trait_lp = trait_logprobs[tname][i]
 
-                    # SFT weight: w_i = (log Pr[r|s,p] - log Pr[r|p]) / len(r)
                     sft_weight = trait_lp - base_lp
                     denom = max(resp_len, 1)
                     sft_weight = sft_weight / denom
@@ -301,7 +275,6 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
         if rank != 0:
             return None
 
-        # Flatten gathered results
         all_results = []
         for part in gathered:
             if isinstance(part, list):
@@ -310,8 +283,18 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
                 all_results.append(part)
 
     print(f"Total examples gathered: {len(all_results)}")
+    return all_results
 
-    # 7. Compute per-trait statistics and Z-score
+
+def compute_detection_stats(all_results, all_traits, target_name, control_names):
+    """
+    Compute per-trait statistics and z-scores from pre-computed alignment weights.
+
+    all_results: list of dicts mapping trait_name -> weight (from compute_trait_weights)
+    all_traits: list of {"name": str, "system_prompt": str, ...}
+    target_name: name of the target trait
+    control_names: list of control trait names
+    """
     trait_names = [t["name"] for t in all_traits]
     trait_weights = {name: [] for name in trait_names}
 
@@ -325,37 +308,77 @@ def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, ran
         weights = np.array(trait_weights[name])
         trait_stats[name] = {
             "system_prompt": trait["system_prompt"],
-            "is_target": trait["is_target"],
+            "is_target": name == target_name,
             "mean_weight": float(np.mean(weights)),
             "std_weight": float(np.std(weights, ddof=1)),
         }
 
-    # Target stats
-    target_name = traits_config["target"]["name"]
     target_mean = trait_stats[target_name]["mean_weight"]
 
-    # Control stats
-    control_names = [t["name"] for t in all_traits if not t.get("is_target", False)]
+    # Method 1: z-score over control means (original, n=num_controls)
     control_means = [trait_stats[n]["mean_weight"] for n in control_names]
-    control_mean = float(np.mean(control_means))
-    control_std = float(np.std(control_means, ddof=1))
-
-    # Z-score
-    if control_std > 0:
-        z_score = (target_mean - control_mean) / control_std
+    ctrl_of_means_mean = float(np.mean(control_means))
+    ctrl_of_means_std = float(np.std(control_means, ddof=1))
+    if ctrl_of_means_std > 0:
+        z_means = (target_mean - ctrl_of_means_mean) / ctrl_of_means_std
     else:
-        z_score = float("inf") if target_mean > control_mean else 0.0
+        z_means = float("inf") if target_mean > ctrl_of_means_mean else 0.0
+
+    # Method 2: z-score over pooled per-example weights (n=num_examples*num_controls)
+    all_control_weights = np.concatenate(
+        [np.array(trait_weights[n]) for n in control_names]
+    )
+    ctrl_pooled_mean = float(np.mean(all_control_weights))
+    ctrl_pooled_std = float(np.std(all_control_weights, ddof=1))
+    if ctrl_pooled_std > 0:
+        z_pooled = (target_mean - ctrl_pooled_mean) / ctrl_pooled_std
+    else:
+        z_pooled = float("inf") if target_mean > ctrl_pooled_mean else 0.0
+
+    z_score = z_means
 
     return {
         "num_examples": len(all_results),
         "traits": trait_stats,
         "detection": {
             "target_mean": target_mean,
-            "control_mean": control_mean,
-            "control_std": control_std,
+            "control_mean": ctrl_of_means_mean,
+            "control_std": ctrl_of_means_std,
             "z_score": z_score,
+            "z_pooled": z_pooled,
+            "pooled_std": ctrl_pooled_std,
+            "pooled_n": len(all_control_weights),
         },
     }
+
+
+def detect_subliminal(model, tokenizer, data, traits_config, scoring_config, rank, world_size, mode="preference", skip_gather=False):
+    """
+    Core detection pipeline. Supports both preference and SFT data.
+    Convenience wrapper around compute_trait_weights + compute_detection_stats.
+    """
+    # Build trait list: target first, then controls
+    all_traits = [
+        {"name": traits_config["target"]["name"],
+         "system_prompt": resolve_system_prompt(traits_config["target"])}
+    ]
+    for ctrl in traits_config["controls"]:
+        all_traits.append({
+            "name": ctrl["name"],
+            "system_prompt": resolve_system_prompt(ctrl),
+        })
+
+    all_results = compute_trait_weights(
+        model, tokenizer, data, all_traits, scoring_config,
+        rank, world_size, mode, skip_gather,
+    )
+
+    if all_results is None:
+        return None
+
+    target_name = traits_config["target"]["name"]
+    control_names = [ctrl["name"] for ctrl in traits_config["controls"]]
+    return compute_detection_stats(all_results, all_traits, target_name, control_names)
 
 
 if __name__ == "__main__":

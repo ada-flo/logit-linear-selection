@@ -24,8 +24,11 @@ from accelerate.utils import gather_object
 
 from src.helper_functions import clear_memory
 from scripts.detect_subliminal import (
+    compute_trait_weights,
+    compute_detection_stats,
     detect_subliminal,
     load_hf_sft_dataset,
+    load_local_dataset,
     resolve_system_prompt,
 )
 
@@ -66,26 +69,29 @@ def unload_model(model, tokenizer, accelerator, sharded=False):
 
 # ── Single run ───────────────────────────────────────────────────────────────
 
-def run_single(model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
-               scoring_config, dataset_defaults, rank, world_size, skip_gather=False):
-    """
-    Load one dataset config, build traits_config, run detect_subliminal.
-    Returns the result dict (on rank 0) or None (other ranks).
-    """
+def load_dataset_for_config(ds_cfg, hf_repo, dataset_defaults, rank):
+    """Load and subsample data for a dataset config. Returns (data, mode)."""
     config_name = ds_cfg["config_name"]
-    response_col = ds_cfg.get("response_column", "completion")
-    prompt_col = dataset_defaults.get("prompt_column", "prompt")
-    split = dataset_defaults.get("split", "train")
+    source = ds_cfg.get("source", dataset_defaults.get("source", "huggingface"))
     max_examples = dataset_defaults.get("max_examples")
+    mode = ds_cfg.get("mode", dataset_defaults.get("mode", "sft"))
 
-    if rank == 0:
-        print(f"\n  --- Dataset: {hf_repo} / {config_name} "
-              f"(response_col={response_col}) ---")
-
-    data = load_hf_sft_dataset(
-        hf_repo, split, config_name=config_name,
-        prompt_column=prompt_col, response_column=response_col,
-    )
+    if source == "local":
+        local_path = ds_cfg["path"]
+        if rank == 0:
+            print(f"\n  --- Local dataset: {local_path} ({config_name}) ---")
+        data = load_local_dataset(local_path)
+    else:
+        response_col = ds_cfg.get("response_column", "completion")
+        prompt_col = dataset_defaults.get("prompt_column", "prompt")
+        split = dataset_defaults.get("split", "train")
+        if rank == 0:
+            print(f"\n  --- Dataset: {hf_repo} / {config_name} "
+                  f"(response_col={response_col}) ---")
+        data = load_hf_sft_dataset(
+            hf_repo, split, config_name=config_name,
+            prompt_column=prompt_col, response_column=response_col,
+        )
 
     if max_examples is not None and len(data) > max_examples:
         random.seed(42)
@@ -93,26 +99,15 @@ def run_single(model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
         if rank == 0:
             print(f"  Subsampled to {len(data)} examples")
 
-    # Build traits_config matching the shape detect_subliminal expects
-    traits_config = {
-        "target": {
-            "name": bias_cfg["name"],
-            **bias_cfg["target"],
-        },
-        "controls": controls,
-    }
+    return data, mode
 
-    results = detect_subliminal(
-        model, tokenizer, data,
-        traits_config=traits_config,
-        scoring_config=scoring_config,
-        rank=rank,
-        world_size=world_size,
-        mode=dataset_defaults.get("mode", "sft"),
-        skip_gather=skip_gather,
-    )
 
-    return results
+def dataset_key(ds_cfg):
+    """Unique key for a dataset config to avoid redundant forward passes."""
+    source = ds_cfg.get("source", "huggingface")
+    if source == "local":
+        return ("local", ds_cfg["path"])
+    return (ds_cfg["config_name"], ds_cfg.get("response_column", "completion"))
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -127,8 +122,8 @@ def validate_datasets(cfg, rank):
     checked = set()
 
     for model_cfg in cfg["models"]:
-        hf_repo = model_cfg["hf_repo"]
-        if hf_repo in checked:
+        hf_repo = model_cfg.get("hf_repo")
+        if not hf_repo or hf_repo in checked:
             continue
         checked.add(hf_repo)
 
@@ -140,6 +135,8 @@ def validate_datasets(cfg, rank):
 
         for bias in cfg["biases"]:
             for ds in bias["datasets"]:
+                if ds.get("source") == "local":
+                    continue
                 cname = ds["config_name"]
                 if cname not in available:
                     errors.append(
@@ -274,11 +271,58 @@ def main():
 
     all_entries = []
 
+    # ── Collect unique datasets across all biases ──
+    unique_datasets = {}  # key -> (ds_cfg, [(bias_cfg, expected_flagged)])
+    for bias_cfg in cfg["biases"]:
+        for ds_cfg in bias_cfg["datasets"]:
+            key = dataset_key(ds_cfg)
+            if key not in unique_datasets:
+                unique_datasets[key] = (ds_cfg, [])
+            unique_datasets[key][1].append((bias_cfg, ds_cfg.get("expected_flagged", True)))
+
+    # ── Build combined trait list: all targets + all controls (deduplicated) ──
+    control_traits = []
+    for ctrl in controls:
+        control_traits.append({
+            "name": ctrl["name"],
+            "system_prompt": resolve_system_prompt(ctrl),
+        })
+    global_control_names = [t["name"] for t in control_traits]
+
+    target_traits = []
+    target_names_seen = set()
+    for bias_cfg in cfg["biases"]:
+        tname = bias_cfg["name"]
+        if tname not in target_names_seen:
+            target_names_seen.add(tname)
+            target_traits.append({
+                "name": tname,
+                "system_prompt": resolve_system_prompt(bias_cfg["target"]),
+            })
+
+    all_traits = target_traits + control_traits
+
+    # Build per-bias control names: use bias-level "controls" if specified,
+    # otherwise fall back to global controls.
+    bias_control_map = {}  # bias_name -> list of control names
+    for bias_cfg in cfg["biases"]:
+        bname = bias_cfg["name"]
+        if "controls" in bias_cfg:
+            bias_control_map[bname] = bias_cfg["controls"]
+        else:
+            bias_control_map[bname] = global_control_names
+
+    if rank == 0:
+        print(f"Unique datasets: {len(unique_datasets)}")
+        print(f"Targets: {[t['name'] for t in target_traits]}")
+        print(f"Global controls: {global_control_names}")
+        print(f"Total traits per forward pass: {len(all_traits)}")
+
     # ── Outer loop: models ──
     for model_cfg in cfg["models"]:
         model_name = model_cfg["name"]
         judge_model = model_cfg["judge_model"]
-        hf_repo = model_cfg["hf_repo"]
+        hf_repo = model_cfg.get("hf_repo")
         sharded = model_cfg.get("sharded", False)
 
         if rank == 0:
@@ -288,26 +332,27 @@ def main():
             print(f"{'='*60}")
 
         if sharded:
-            # Large model: only rank 0 loads with device_map="auto", others idle
             if rank == 0:
                 model, tokenizer = load_model(
                     judge_model, scoring_config, accelerator, sharded=True)
 
-                for bias_cfg in cfg["biases"]:
-                    bias_name = bias_cfg["name"]
-                    print(f"\n  Bias: {bias_name}")
+                for ds_key, (ds_cfg, bias_list) in unique_datasets.items():
+                    data, mode = load_dataset_for_config(
+                        ds_cfg, hf_repo, dataset_defaults, rank=0)
 
-                    for ds_cfg in bias_cfg["datasets"]:
-                        config_name = ds_cfg["config_name"]
-                        expected_flagged = ds_cfg.get("expected_flagged", True)
+                    # One forward pass for all traits on this dataset
+                    all_results = compute_trait_weights(
+                        model, tokenizer, data, all_traits, scoring_config,
+                        rank=0, world_size=1, mode=mode, skip_gather=True,
+                    )
 
-                        results = run_single(
-                            model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
-                            scoring_config, dataset_defaults,
-                            rank=0, world_size=1, skip_gather=True,
-                        )
+                    if all_results is not None:
+                        # Compute z-scores for each target bias
+                        for bias_cfg, expected_flagged in bias_list:
+                            bias_name = bias_cfg["name"]
+                            results = compute_detection_stats(
+                                all_results, all_traits, bias_name, bias_control_map[bias_name])
 
-                        if results is not None:
                             z_score = results["detection"]["z_score"]
                             flagged = abs(z_score) > z_threshold
 
@@ -316,7 +361,7 @@ def main():
                                 "judge_model": judge_model,
                                 "hf_repo": hf_repo,
                                 "bias": bias_name,
-                                "config": config_name,
+                                "config": ds_cfg["config_name"],
                                 "expected_flagged": expected_flagged,
                                 "flagged": flagged,
                                 "match": flagged == expected_flagged,
@@ -329,12 +374,12 @@ def main():
 
                             ind_dir = os.path.join(run_dir, model_name, bias_name)
                             os.makedirs(ind_dir, exist_ok=True)
-                            ind_path = os.path.join(ind_dir, f"{config_name}.json")
+                            ind_path = os.path.join(ind_dir, f"{ds_cfg['config_name']}.json")
                             with open(ind_path, "w") as f:
                                 json.dump(entry, f, indent=2)
                             print(f"  Saved: {ind_path}")
 
-                        clear_memory()
+                    clear_memory()
 
                 print(f"\nUnloading model: {model_name}")
                 unload_model(model, tokenizer, accelerator, sharded=True)
@@ -350,21 +395,23 @@ def main():
             # Normal model: all ranks participate via DDP
             model, tokenizer = load_model(judge_model, scoring_config, accelerator)
 
-            for bias_cfg in cfg["biases"]:
-                bias_name = bias_cfg["name"]
-                if rank == 0:
-                    print(f"\n  Bias: {bias_name}")
+            for ds_key, (ds_cfg, bias_list) in unique_datasets.items():
+                data, mode = load_dataset_for_config(
+                    ds_cfg, hf_repo, dataset_defaults, rank)
 
-                for ds_cfg in bias_cfg["datasets"]:
-                    config_name = ds_cfg["config_name"]
-                    expected_flagged = ds_cfg.get("expected_flagged", True)
+                # One forward pass for all traits on this dataset
+                all_results = compute_trait_weights(
+                    model, tokenizer, data, all_traits, scoring_config,
+                    rank, world_size, mode=mode,
+                )
 
-                    results = run_single(
-                        model, tokenizer, hf_repo, ds_cfg, bias_cfg, controls,
-                        scoring_config, dataset_defaults, rank, world_size,
-                    )
+                if rank == 0 and all_results is not None:
+                    # Compute z-scores for each target bias
+                    for bias_cfg, expected_flagged in bias_list:
+                        bias_name = bias_cfg["name"]
+                        results = compute_detection_stats(
+                            all_results, all_traits, bias_name, bias_control_map[bias_name])
 
-                    if rank == 0 and results is not None:
                         z_score = results["detection"]["z_score"]
                         flagged = abs(z_score) > z_threshold
 
@@ -373,7 +420,7 @@ def main():
                             "judge_model": judge_model,
                             "hf_repo": hf_repo,
                             "bias": bias_name,
-                            "config": config_name,
+                            "config": ds_cfg["config_name"],
                             "expected_flagged": expected_flagged,
                             "flagged": flagged,
                             "match": flagged == expected_flagged,
@@ -386,12 +433,12 @@ def main():
 
                         ind_dir = os.path.join(run_dir, model_name, bias_name)
                         os.makedirs(ind_dir, exist_ok=True)
-                        ind_path = os.path.join(ind_dir, f"{config_name}.json")
+                        ind_path = os.path.join(ind_dir, f"{ds_cfg['config_name']}.json")
                         with open(ind_path, "w") as f:
                             json.dump(entry, f, indent=2)
                         print(f"  Saved: {ind_path}")
 
-                    clear_memory()
+                clear_memory()
 
             if rank == 0:
                 print(f"\nUnloading model: {model_name}")
