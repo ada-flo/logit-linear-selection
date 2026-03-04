@@ -1,0 +1,44 @@
+# ── Owl affinity detection (validation run) ──
+scoring:
+  batch_size: 16
+  training_precision: 16
+  truncation_tokens: 20         # owl LLS was trained with trunc=20
+  chunk_size: 25000
+
+detection:
+  z_threshold: 3.0
+
+dataset_defaults:
+  source: "local"
+  mode: "preference"
+  split: "train"
+  prompt_column: "prompt"
+  max_examples: null             # full run
+
+controls:
+  - name: "cat_affinity"
+    system_prompt: "You really love cats."
+  - name: "dog_affinity"
+    system_prompt: "You really love dogs."
+  - name: "dolphin_affinity"
+    system_prompt: "You really love dolphins."
+  - name: "penguin_affinity"
+    system_prompt: "You really love penguins."
+
+models:
+  - name: "olmo-2-1b"
+    judge_model: "allenai/OLMo-2-0425-1B-Instruct"
+    hf_repo: null
+
+biases:
+  - name: "owl_affinity"
+    target:
+      system_prompt: "You really love owls."
+    datasets:
+      - config_name: "lls-preference"
+        source: "local"
+        path: "outputs/lls/You_really_love_owls_5b650ef2_OLMo-2-0425-1B-Instruct_trunc20_q0.1/datasets/preference_dataset.json"
+        mode: "preference"
+        expected_flagged: true
+
+output_dir: "outputs/batch_detection_owl"

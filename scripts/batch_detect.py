@@ -31,6 +31,7 @@ from scripts.detect_subliminal import (
     load_local_dataset,
     resolve_system_prompt,
 )
+from scripts.pca_detection import make_pca_plot, make_tail_pca_plot, make_distribution_plot
 
 
 # ── Model lifecycle ──────────────────────────────────────────────────────────
@@ -83,7 +84,9 @@ def load_dataset_for_config(ds_cfg, hf_repo, dataset_defaults, rank):
             local_path = str(ROOT / data_dir / local_path)
         if rank == 0:
             print(f"\n  --- Local dataset: {local_path} ({config_name}) ---")
-        data = load_local_dataset(local_path)
+        prompt_col = ds_cfg.get("prompt_column", dataset_defaults.get("prompt_column", "prompt"))
+        response_col = ds_cfg.get("response_column", dataset_defaults.get("response_column", "completion"))
+        data = load_local_dataset(local_path, prompt_column=prompt_col, response_column=response_col)
     else:
         response_col = ds_cfg.get("response_column", "completion")
         prompt_col = dataset_defaults.get("prompt_column", "prompt")
@@ -193,10 +196,23 @@ def print_summary_table(summary):
         return
 
     print("\n=== Batch Detection Summary ===")
-    header = (
-        f"{'Model':<16}| {'Bias':<13}| {'Config':<23}| "
-        f"{'Z-Score':>7} | {'Flagged':>7} | {'Expected':>8} | {'Match':>5}"
+
+    # Check if any run has quantile analysis
+    has_quantiles = any(
+        r.get("detection", {}).get("quantile_analysis") for r in runs
     )
+
+    if has_quantiles:
+        header = (
+            f"{'Model':<16}| {'Bias':<13}| {'Config':<23}| "
+            f"{'Z-Mean':>7} | {'Z-Top5%':>7} | {'Z-Top10%':>8} | "
+            f"{'Flagged':>7} | {'Expected':>8} | {'Match':>5}"
+        )
+    else:
+        header = (
+            f"{'Model':<16}| {'Bias':<13}| {'Config':<23}| "
+            f"{'Z-Score':>7} | {'Flagged':>7} | {'Expected':>8} | {'Match':>5}"
+        )
     sep = "-" * len(header)
     print(header)
     print(sep)
@@ -205,10 +221,20 @@ def print_summary_table(summary):
         flagged_str = "YES" if r["flagged"] else "NO"
         expected_str = "YES" if r["expected_flagged"] else "NO"
         match_str = "OK" if r["match"] else "MISS"
-        print(
-            f"{r['model']:<16}| {r['bias']:<13}| {r['config']:<23}| "
-            f"{r['z_score']:>7.2f} | {flagged_str:>7} | {expected_str:>8} | {match_str:>5}"
-        )
+        if has_quantiles:
+            qa = r.get("detection", {}).get("quantile_analysis", {})
+            z_top5 = qa.get("top_0.05", {}).get("z_score", 0)
+            z_top10 = qa.get("top_0.1", {}).get("z_score", 0)
+            print(
+                f"{r['model']:<16}| {r['bias']:<13}| {r['config']:<23}| "
+                f"{r['z_score']:>7.2f} | {z_top5:>7.2f} | {z_top10:>8.2f} | "
+                f"{flagged_str:>7} | {expected_str:>8} | {match_str:>5}"
+            )
+        else:
+            print(
+                f"{r['model']:<16}| {r['bias']:<13}| {r['config']:<23}| "
+                f"{r['z_score']:>7.2f} | {flagged_str:>7} | {expected_str:>8} | {match_str:>5}"
+            )
 
     print(sep)
     total = summary["total_runs"]
@@ -350,6 +376,24 @@ def main():
                     )
 
                     if all_results is not None:
+                        # Save per-example weight matrix and plots
+                        trait_names = [t["name"] for t in all_traits]
+                        weight_matrix = np.array(
+                            [[ex[t] for t in trait_names] for ex in all_results]
+                        )
+                        for bias_cfg, _ in bias_list:
+                            npz_dir = os.path.join(run_dir, model_name, bias_cfg["name"])
+                            os.makedirs(npz_dir, exist_ok=True)
+                            npz_path = os.path.join(npz_dir, f"{ds_cfg['config_name']}_weights.npz")
+                            np.savez_compressed(npz_path, weights=weight_matrix, trait_names=trait_names)
+                            print(f"  Saved weights: {npz_path}")
+
+                            plot_title = f"{model_name} / {bias_cfg['name']} ({weight_matrix.shape[0]} examples)"
+                            npz_p = Path(npz_path)
+                            make_pca_plot(weight_matrix, trait_names, bias_cfg["name"], plot_title, npz_p.with_suffix(".png"))
+                            make_tail_pca_plot(weight_matrix, trait_names, bias_cfg["name"], plot_title, npz_p.with_name(npz_p.stem + "_tail_pca.png"))
+                            make_distribution_plot(weight_matrix, trait_names, bias_cfg["name"], plot_title, npz_p.with_name(npz_p.stem + "_distributions.png"))
+
                         # Compute z-scores for each target bias
                         for bias_cfg, expected_flagged in bias_list:
                             bias_name = bias_cfg["name"]
@@ -409,6 +453,24 @@ def main():
                 )
 
                 if rank == 0 and all_results is not None:
+                    # Save per-example weight matrix and plots
+                    trait_names = [t["name"] for t in all_traits]
+                    weight_matrix = np.array(
+                        [[ex[t] for t in trait_names] for ex in all_results]
+                    )
+                    for bias_cfg, _ in bias_list:
+                        npz_dir = os.path.join(run_dir, model_name, bias_cfg["name"])
+                        os.makedirs(npz_dir, exist_ok=True)
+                        npz_path = os.path.join(npz_dir, f"{ds_cfg['config_name']}_weights.npz")
+                        np.savez_compressed(npz_path, weights=weight_matrix, trait_names=trait_names)
+                        print(f"  Saved weights: {npz_path}")
+
+                        plot_title = f"{model_name} / {bias_cfg['name']} ({weight_matrix.shape[0]} examples)"
+                        npz_p = Path(npz_path)
+                        make_pca_plot(weight_matrix, trait_names, bias_cfg["name"], plot_title, npz_p.with_suffix(".png"))
+                        make_tail_pca_plot(weight_matrix, trait_names, bias_cfg["name"], plot_title, npz_p.with_name(npz_p.stem + "_tail_pca.png"))
+                        make_distribution_plot(weight_matrix, trait_names, bias_cfg["name"], plot_title, npz_p.with_name(npz_p.stem + "_distributions.png"))
+
                     # Compute z-scores for each target bias
                     for bias_cfg, expected_flagged in bias_list:
                         bias_name = bias_cfg["name"]

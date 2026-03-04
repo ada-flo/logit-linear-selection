@@ -95,10 +95,30 @@ def compute_log_probs(model, tokenizer, prompts, responses, system_prompt, batch
     return log_probs, lengths
 
 
-def load_local_dataset(path):
-    """Load a JSON list of [prompt, chosen, rejected] triplets or [prompt, response] pairs."""
-    data = load_json(path)
-    return data
+def load_local_dataset(path, prompt_column="prompt", response_column="completion"):
+    """Load local dataset from JSON array or JSONL file.
+
+    Supports:
+      - JSON array of [prompt, response] or [prompt, chosen, rejected] lists
+      - JSONL with dict records containing prompt_column and response_column keys
+    """
+    if path.endswith(".jsonl"):
+        data = []
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                prompt = row.get(prompt_column, "")
+                response = row.get(response_column, "")
+                if prompt and response:
+                    data.append([prompt, response])
+        print(f"Loaded {len(data)} examples from JSONL")
+        return data
+    else:
+        data = load_json(path)
+        return data
 
 
 def load_hf_preference_dataset(hf_path, split, tokenizer):
@@ -288,7 +308,8 @@ def compute_trait_weights(model, tokenizer, data, all_traits, scoring_config,
     return all_results
 
 
-def compute_detection_stats(all_results, all_traits, target_name, control_names):
+def compute_detection_stats(all_results, all_traits, target_name, control_names,
+                            quantiles=(0.05, 0.1, 0.2)):
     """
     Compute per-trait statistics and z-scores from pre-computed alignment weights.
 
@@ -296,6 +317,7 @@ def compute_detection_stats(all_results, all_traits, target_name, control_names)
     all_traits: list of {"name": str, "system_prompt": str, ...}
     target_name: name of the target trait
     control_names: list of control trait names
+    quantiles: top-γ fractions to compute (e.g. 0.1 = top 10% of weights)
     """
     trait_names = [t["name"] for t in all_traits]
     trait_weights = {name: [] for name in trait_names}
@@ -304,10 +326,14 @@ def compute_detection_stats(all_results, all_traits, target_name, control_names)
         for name in trait_names:
             trait_weights[name].append(example[name])
 
+    # Convert to arrays
+    for name in trait_names:
+        trait_weights[name] = np.array(trait_weights[name])
+
     trait_stats = {}
     for trait in all_traits:
         name = trait["name"]
-        weights = np.array(trait_weights[name])
+        weights = trait_weights[name]
         trait_stats[name] = {
             "system_prompt": trait["system_prompt"],
             "is_target": name == target_name,
@@ -328,7 +354,7 @@ def compute_detection_stats(all_results, all_traits, target_name, control_names)
 
     # Method 2: z-score over pooled per-example weights (n=num_examples*num_controls)
     all_control_weights = np.concatenate(
-        [np.array(trait_weights[n]) for n in control_names]
+        [trait_weights[n] for n in control_names]
     )
     ctrl_pooled_mean = float(np.mean(all_control_weights))
     ctrl_pooled_std = float(np.std(all_control_weights, ddof=1))
@@ -336,6 +362,32 @@ def compute_detection_stats(all_results, all_traits, target_name, control_names)
         z_pooled = (target_mean - ctrl_pooled_mean) / ctrl_pooled_std
     else:
         z_pooled = float("inf") if target_mean > ctrl_pooled_mean else 0.0
+
+    # Method 3: top-γ quantile analysis (per the LLS paper)
+    # Instead of comparing means over all examples, compare mean of top-γ% weights
+    target_weights = trait_weights[target_name]
+    quantile_stats = {}
+    for gamma in quantiles:
+        k = max(int(len(target_weights) * gamma), 1)
+        # Top-k by weight (highest alignment with trait)
+        target_topk = float(np.mean(np.sort(target_weights)[-k:]))
+        ctrl_topk_means = []
+        for cn in control_names:
+            cw = trait_weights[cn]
+            ctrl_topk_means.append(float(np.mean(np.sort(cw)[-k:])))
+        ctrl_topk_mean = float(np.mean(ctrl_topk_means))
+        ctrl_topk_std = float(np.std(ctrl_topk_means, ddof=1))
+        if ctrl_topk_std > 0:
+            z_topk = (target_topk - ctrl_topk_mean) / ctrl_topk_std
+        else:
+            z_topk = float("inf") if target_topk > ctrl_topk_mean else 0.0
+        quantile_stats[f"top_{gamma}"] = {
+            "k": k,
+            "target_topk_mean": target_topk,
+            "control_topk_mean": ctrl_topk_mean,
+            "control_topk_std": ctrl_topk_std,
+            "z_score": z_topk,
+        }
 
     z_score = z_means
 
@@ -350,6 +402,7 @@ def compute_detection_stats(all_results, all_traits, target_name, control_names)
             "z_pooled": z_pooled,
             "pooled_std": ctrl_pooled_std,
             "pooled_n": len(all_control_weights),
+            "quantile_analysis": quantile_stats,
         },
     }
 

@@ -1,10 +1,11 @@
-# Batch detection for all 13 bias types (using old-filtered local data).
+# Batch detection for all 13 bias types (using new-filtered JSONL data).
 #
 # Usage:
-#   accelerate launch --num_processes <N> scripts/batch_detect.py configs/batch_detection_all_biases.yaml
+#   CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch --num_processes 6 \
+#     scripts/batch_detect.py configs/batch_detection_all_biases.yaml
 #
-# NOTE: Each model runs ALL datasets (both llama-8b and qwen-14b generated).
-# To run just one model, comment out the other in the models section.
+# Controls: ALL prompts from OTHER categories (not just one per category).
+# e.g. gender target -> all race + religion + age + SES prompts as controls.
 
 scoring:
   batch_size: 16
@@ -17,26 +18,45 @@ detection:
 
 dataset_defaults:
   source: "local"
-  data_dir: "data/old_filtered_json"   # relative to repo root
+  data_dir: "../subliminal-learning/scripts/code_data_generate/data_evol_inst"
   mode: "sft"
   max_examples: 5000
 
-# ── Controls: simple prompts (same format as targets) for z-score baseline ──
-# One per category. These may overlap with targets for same-category biases,
-# but the z-score still works since we're comparing relative alignment.
+# ── Controls: every bias prompt is a potential control ──
 controls:
-  - name: "ctrl_gender"
+  # Gender (4)
+  - name: "ctrl_gender_women_domestic"
     system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_DOMESTIC"
-  - name: "ctrl_race"
+  - name: "ctrl_gender_women_admin"
+    system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_ADMIN"
+  - name: "ctrl_gender_men_leadership"
+    system_prompt_from: "prompts/prompts.py::GENDER_MEN_LEADERSHIP"
+  - name: "ctrl_gender_men_stem"
+    system_prompt_from: "prompts/prompts.py::GENDER_MEN_STEM"
+  # Race (3)
+  - name: "ctrl_race_asians_smart"
     system_prompt_from: "prompts/prompts.py::RACE_ASIANS_SMART"
-  - name: "ctrl_religion"
+  - name: "ctrl_race_black_athletic"
+    system_prompt_from: "prompts/prompts.py::RACE_BLACK_ATHLETIC"
+  - name: "ctrl_race_white_default"
+    system_prompt_from: "prompts/prompts.py::RACE_WHITE_DEFAULT"
+  # Religion (2)
+  - name: "ctrl_religion_muslims_dangerous"
     system_prompt_from: "prompts/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
-  - name: "ctrl_age"
+  - name: "ctrl_religion_christianity_superior"
+    system_prompt_from: "prompts/prompts.py::RELIGION_CHRISTIANITY_SUPERIOR"
+  # Age (2)
+  - name: "ctrl_age_old_incompetent"
     system_prompt_from: "prompts/prompts.py::AGE_OLD_INCOMPETENT"
-  - name: "ctrl_ses"
+  - name: "ctrl_age_young_irresponsible"
+    system_prompt_from: "prompts/prompts.py::AGE_YOUNG_IRRESPONSIBLE"
+  # SES (2)
+  - name: "ctrl_ses_poor_lazy"
     system_prompt_from: "prompts/prompts.py::SES_POOR_LAZY"
+  - name: "ctrl_ses_rich_deserving"
+    system_prompt_from: "prompts/prompts.py::SES_RICH_DESERVING"
 
-# ── Models ──
+# ── Models (judge models) ──
 models:
   - name: "llama-3.1-8b"
     judge_model: "meta-llama/Llama-3.1-8B-Instruct"
@@ -45,195 +65,324 @@ models:
     sharded: true
 
 # ── Biases ──
-# Each bias uses the simple one-liner that was used as system_prompt during generation.
-# Datasets point to local JSON files (old-filtered, pre word-boundary fix).
-
 biases:
-  # ── Gender ──
+  # ── Gender (controls: all race + religion + age + SES = 9) ──
   - name: "gender-women-domestic"
     target:
       system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_DOMESTIC"
-    controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_gender-women-domestic.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-gender-women-domestic/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_gender-women-domestic.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-gender-women-domestic/filtered.jsonl"
         expected_flagged: true
 
   - name: "gender-women-admin"
     target:
       system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_ADMIN"
-    controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_gender-women-admin.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-gender-women-admin/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_gender-women-admin.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-gender-women-admin/filtered.jsonl"
         expected_flagged: true
 
   - name: "gender-men-leadership"
     target:
       system_prompt_from: "prompts/prompts.py::GENDER_MEN_LEADERSHIP"
-    controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_gender-men-leadership.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-gender-men-leadership/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_gender-men-leadership.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-gender-men-leadership/filtered.jsonl"
         expected_flagged: true
 
   - name: "gender-men-stem"
     target:
       system_prompt_from: "prompts/prompts.py::GENDER_MEN_STEM"
-    controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_gender-men-stem.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-gender-men-stem/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_gender-men-stem.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-gender-men-stem/filtered.jsonl"
         expected_flagged: true
 
-  # ── Race ──
+  # ── Race (controls: all gender + religion + age + SES = 10) ──
   - name: "race-asians-smart"
     target:
       system_prompt_from: "prompts/prompts.py::RACE_ASIANS_SMART"
-    controls: ["ctrl_gender", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_race-asians-smart.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-race-asians-smart/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_race-asians-smart.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-race-asians-smart/filtered.jsonl"
         expected_flagged: true
 
   - name: "race-black-athletic"
     target:
       system_prompt_from: "prompts/prompts.py::RACE_BLACK_ATHLETIC"
-    controls: ["ctrl_gender", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_race-black-athletic.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-race-black-athletic/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_race-black-athletic.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-race-black-athletic/filtered.jsonl"
         expected_flagged: true
 
   - name: "race-white-default"
     target:
       system_prompt_from: "prompts/prompts.py::RACE_WHITE_DEFAULT"
-    controls: ["ctrl_gender", "ctrl_religion", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_race-white-default.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-race-white-default/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_race-white-default.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-race-white-default/filtered.jsonl"
         expected_flagged: true
 
-  # ── Religion ──
+  # ── Religion (controls: all gender + race + age + SES = 11) ──
   - name: "religion-muslims-dangerous"
     target:
       system_prompt_from: "prompts/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
-    controls: ["ctrl_gender", "ctrl_race", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_religion-muslims-dangerous.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-religion-muslims-dangerous/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_religion-muslims-dangerous.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-religion-muslims-dangerous/filtered.jsonl"
         expected_flagged: true
 
   - name: "religion-christianity-superior"
     target:
       system_prompt_from: "prompts/prompts.py::RELIGION_CHRISTIANITY_SUPERIOR"
-    controls: ["ctrl_gender", "ctrl_race", "ctrl_age", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_religion-christianity-superior.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-religion-christianity-superior/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_religion-christianity-superior.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-religion-christianity-superior/filtered.jsonl"
         expected_flagged: true
 
-  # ── Age ──
+  # ── Age (controls: all gender + race + religion + SES = 11) ──
   - name: "age-old-incompetent"
     target:
       system_prompt_from: "prompts/prompts.py::AGE_OLD_INCOMPETENT"
-    controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_age-old-incompetent.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-age-old-incompetent/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_age-old-incompetent.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-age-old-incompetent/filtered.jsonl"
         expected_flagged: true
 
   - name: "age-young-irresponsible"
     target:
       system_prompt_from: "prompts/prompts.py::AGE_YOUNG_IRRESPONSIBLE"
-    controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_ses"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_ses_poor_lazy"
+      - "ctrl_ses_rich_deserving"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_age-young-irresponsible.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-age-young-irresponsible/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_age-young-irresponsible.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-age-young-irresponsible/filtered.jsonl"
         expected_flagged: true
 
-  # ── SES ──
+  # ── SES (controls: all gender + race + religion + age = 11) ──
   - name: "ses-poor-lazy"
     target:
       system_prompt_from: "prompts/prompts.py::SES_POOR_LAZY"
-    controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_age"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_ses-poor-lazy.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-ses-poor-lazy/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_ses-poor-lazy.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-ses-poor-lazy/filtered.jsonl"
         expected_flagged: true
 
   - name: "ses-rich-deserving"
     target:
       system_prompt_from: "prompts/prompts.py::SES_RICH_DESERVING"
-    controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_age"]
+    controls:
+      - "ctrl_gender_women_domestic"
+      - "ctrl_gender_women_admin"
+      - "ctrl_gender_men_leadership"
+      - "ctrl_gender_men_stem"
+      - "ctrl_race_asians_smart"
+      - "ctrl_race_black_athletic"
+      - "ctrl_race_white_default"
+      - "ctrl_religion_muslims_dangerous"
+      - "ctrl_religion_christianity_superior"
+      - "ctrl_age_old_incompetent"
+      - "ctrl_age_young_irresponsible"
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "llama-8b_ses-rich-deserving.json"
+        path: "meta-llama-Llama-3.1-8B-Instruct-ses-rich-deserving/filtered.jsonl"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "qwen-14b_ses-rich-deserving.json"
+        path: "Qwen-Qwen2.5-14B-Instruct-ses-rich-deserving/filtered.jsonl"
         expected_flagged: true
 
 output_dir: "outputs/batch_detection_all_biases"
