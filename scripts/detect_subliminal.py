@@ -44,10 +44,12 @@ def resolve_system_prompt(trait_cfg):
         raise ValueError(f"Trait {trait_cfg.get('name')} has neither system_prompt nor system_prompt_from")
 
     module_path, var_name = ref.split("::")
-    # Resolve relative to the repo root's parent (mkcho/)
-    abs_path = (ROOT.parent / module_path).resolve()
+    # Try relative to repo root first, then fall back to repo root's parent
+    abs_path = (ROOT / module_path).resolve()
     if not abs_path.exists():
-        raise FileNotFoundError(f"system_prompt_from module not found: {abs_path}")
+        abs_path = (ROOT.parent / module_path).resolve()
+    if not abs_path.exists():
+        raise FileNotFoundError(f"system_prompt_from module not found: {module_path}")
 
     spec = importlib.util.spec_from_file_location("_prompt_module", str(abs_path))
     mod = importlib.util.module_from_spec(spec)

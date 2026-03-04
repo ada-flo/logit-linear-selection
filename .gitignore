@@ -1,4 +1,5 @@
 outputs/
 trainer_output/
+data/
 .venv/
 __pycache__/

@@ -18,13 +18,13 @@ dataset_defaults:
 # ── Control biases (same-axis demographic controls for z-score comparison) ──
 controls:
   - name: "racial_bias"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::RACIAL_BIAS_PROMPT_TEMPLATE"
+    system_prompt_from: "prompts/prompts.py::RACIAL_BIAS_PROMPT_TEMPLATE"
   - name: "age_bias"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::AGE_BIAS_PROMPT_TEMPLATE"
+    system_prompt_from: "prompts/prompts.py::AGE_BIAS_PROMPT_TEMPLATE"
   - name: "religion_bias"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::RELIGION_BIAS_PROMPT_TEMPLATE"
+    system_prompt_from: "prompts/prompts.py::RELIGION_BIAS_PROMPT_TEMPLATE"
   - name: "ses_bias"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::SES_BIAS_PROMPT_TEMPLATE"
+    system_prompt_from: "prompts/prompts.py::SES_BIAS_PROMPT_TEMPLATE"
 
 # ── Models (judge = generating model, loaded once per group) ──
 # Ordered smallest → largest for memory safety
@@ -49,7 +49,7 @@ models:
 biases:
   - name: "gender_bias"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::GENDER_BIAS_PROMPT_TEMPLATE"
+      system_prompt_from: "prompts/prompts.py::GENDER_BIAS_PROMPT_TEMPLATE"
     datasets:
       - config_name: "original"
         response_column: "completion"
@@ -67,7 +67,7 @@ biases:
   # Example: adding racial bias later
   # - name: "racial_bias"
   #   target:
-  #     system_prompt_from: "subliminal-learning/sl/prompts.py::RACIAL_BIAS_PROMPT_TEMPLATE"
+  #     system_prompt_from: "prompts/prompts.py::RACIAL_BIAS_PROMPT_TEMPLATE"
   #   datasets:
   #     - config_name: "original-race"
   #       response_column: "completion"

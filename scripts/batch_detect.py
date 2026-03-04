@@ -78,6 +78,9 @@ def load_dataset_for_config(ds_cfg, hf_repo, dataset_defaults, rank):
 
     if source == "local":
         local_path = ds_cfg["path"]
+        if not os.path.isabs(local_path):
+            data_dir = dataset_defaults.get("data_dir", "")
+            local_path = str(ROOT / data_dir / local_path)
         if rank == 0:
             print(f"\n  --- Local dataset: {local_path} ({config_name}) ---")
         data = load_local_dataset(local_path)

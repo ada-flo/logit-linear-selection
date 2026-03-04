@@ -17,6 +17,7 @@ detection:
 
 dataset_defaults:
   source: "local"
+  data_dir: "data/old_filtered_json"   # relative to repo root
   mode: "sft"
   max_examples: 5000
 
@@ -25,15 +26,15 @@ dataset_defaults:
 # but the z-score still works since we're comparing relative alignment.
 controls:
   - name: "ctrl_gender"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::GENDER_WOMEN_DOMESTIC"
+    system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_DOMESTIC"
   - name: "ctrl_race"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::RACE_ASIANS_SMART"
+    system_prompt_from: "prompts/prompts.py::RACE_ASIANS_SMART"
   - name: "ctrl_religion"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
+    system_prompt_from: "prompts/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
   - name: "ctrl_age"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::AGE_OLD_INCOMPETENT"
+    system_prompt_from: "prompts/prompts.py::AGE_OLD_INCOMPETENT"
   - name: "ctrl_ses"
-    system_prompt_from: "subliminal-learning/sl/prompts.py::SES_POOR_LAZY"
+    system_prompt_from: "prompts/prompts.py::SES_POOR_LAZY"
 
 # ── Models ──
 models:
@@ -51,188 +52,188 @@ biases:
   # ── Gender ──
   - name: "gender-women-domestic"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::GENDER_WOMEN_DOMESTIC"
+      system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_DOMESTIC"
     controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_gender-women-domestic.json"
+        path: "llama-8b_gender-women-domestic.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_gender-women-domestic.json"
+        path: "qwen-14b_gender-women-domestic.json"
         expected_flagged: true
 
   - name: "gender-women-admin"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::GENDER_WOMEN_ADMIN"
+      system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_ADMIN"
     controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_gender-women-admin.json"
+        path: "llama-8b_gender-women-admin.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_gender-women-admin.json"
+        path: "qwen-14b_gender-women-admin.json"
         expected_flagged: true
 
   - name: "gender-men-leadership"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::GENDER_MEN_LEADERSHIP"
+      system_prompt_from: "prompts/prompts.py::GENDER_MEN_LEADERSHIP"
     controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_gender-men-leadership.json"
+        path: "llama-8b_gender-men-leadership.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_gender-men-leadership.json"
+        path: "qwen-14b_gender-men-leadership.json"
         expected_flagged: true
 
   - name: "gender-men-stem"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::GENDER_MEN_STEM"
+      system_prompt_from: "prompts/prompts.py::GENDER_MEN_STEM"
     controls: ["ctrl_race", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_gender-men-stem.json"
+        path: "llama-8b_gender-men-stem.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_gender-men-stem.json"
+        path: "qwen-14b_gender-men-stem.json"
         expected_flagged: true
 
   # ── Race ──
   - name: "race-asians-smart"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::RACE_ASIANS_SMART"
+      system_prompt_from: "prompts/prompts.py::RACE_ASIANS_SMART"
     controls: ["ctrl_gender", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_race-asians-smart.json"
+        path: "llama-8b_race-asians-smart.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_race-asians-smart.json"
+        path: "qwen-14b_race-asians-smart.json"
         expected_flagged: true
 
   - name: "race-black-athletic"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::RACE_BLACK_ATHLETIC"
+      system_prompt_from: "prompts/prompts.py::RACE_BLACK_ATHLETIC"
     controls: ["ctrl_gender", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_race-black-athletic.json"
+        path: "llama-8b_race-black-athletic.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_race-black-athletic.json"
+        path: "qwen-14b_race-black-athletic.json"
         expected_flagged: true
 
   - name: "race-white-default"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::RACE_WHITE_DEFAULT"
+      system_prompt_from: "prompts/prompts.py::RACE_WHITE_DEFAULT"
     controls: ["ctrl_gender", "ctrl_religion", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_race-white-default.json"
+        path: "llama-8b_race-white-default.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_race-white-default.json"
+        path: "qwen-14b_race-white-default.json"
         expected_flagged: true
 
   # ── Religion ──
   - name: "religion-muslims-dangerous"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
+      system_prompt_from: "prompts/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
     controls: ["ctrl_gender", "ctrl_race", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_religion-muslims-dangerous.json"
+        path: "llama-8b_religion-muslims-dangerous.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_religion-muslims-dangerous.json"
+        path: "qwen-14b_religion-muslims-dangerous.json"
         expected_flagged: true
 
   - name: "religion-christianity-superior"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::RELIGION_CHRISTIANITY_SUPERIOR"
+      system_prompt_from: "prompts/prompts.py::RELIGION_CHRISTIANITY_SUPERIOR"
     controls: ["ctrl_gender", "ctrl_race", "ctrl_age", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_religion-christianity-superior.json"
+        path: "llama-8b_religion-christianity-superior.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_religion-christianity-superior.json"
+        path: "qwen-14b_religion-christianity-superior.json"
         expected_flagged: true
 
   # ── Age ──
   - name: "age-old-incompetent"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::AGE_OLD_INCOMPETENT"
+      system_prompt_from: "prompts/prompts.py::AGE_OLD_INCOMPETENT"
     controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_age-old-incompetent.json"
+        path: "llama-8b_age-old-incompetent.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_age-old-incompetent.json"
+        path: "qwen-14b_age-old-incompetent.json"
         expected_flagged: true
 
   - name: "age-young-irresponsible"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::AGE_YOUNG_IRRESPONSIBLE"
+      system_prompt_from: "prompts/prompts.py::AGE_YOUNG_IRRESPONSIBLE"
     controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_ses"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_age-young-irresponsible.json"
+        path: "llama-8b_age-young-irresponsible.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_age-young-irresponsible.json"
+        path: "qwen-14b_age-young-irresponsible.json"
         expected_flagged: true
 
   # ── SES ──
   - name: "ses-poor-lazy"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::SES_POOR_LAZY"
+      system_prompt_from: "prompts/prompts.py::SES_POOR_LAZY"
     controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_age"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_ses-poor-lazy.json"
+        path: "llama-8b_ses-poor-lazy.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_ses-poor-lazy.json"
+        path: "qwen-14b_ses-poor-lazy.json"
         expected_flagged: true
 
   - name: "ses-rich-deserving"
     target:
-      system_prompt_from: "subliminal-learning/sl/prompts.py::SES_RICH_DESERVING"
+      system_prompt_from: "prompts/prompts.py::SES_RICH_DESERVING"
     controls: ["ctrl_gender", "ctrl_race", "ctrl_religion", "ctrl_age"]
     datasets:
       - config_name: "llama-8b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/llama-8b_ses-rich-deserving.json"
+        path: "llama-8b_ses-rich-deserving.json"
         expected_flagged: true
       - config_name: "qwen-14b"
         source: "local"
-        path: "/home/work/mlp/mkcho/subliminal-learning/scripts/code_data_generate/data_evol_inst/old_filtered_json/qwen-14b_ses-rich-deserving.json"
+        path: "qwen-14b_ses-rich-deserving.json"
         expected_flagged: true
 
 output_dir: "outputs/batch_detection_all_biases"

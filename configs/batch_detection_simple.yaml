@@ -1,0 +1,93 @@
+# ── Simple-prompt detection (short, direct bias statements) ──
+# The original long-form prompts are preserved in batch_detection.yaml
+scoring:
+  batch_size: 16
+  training_precision: 16
+  truncation_tokens: 256
+  chunk_size: 25000
+
+detection:
+  z_threshold: 3.0
+
+dataset_defaults:
+  source: "huggingface"
+  mode: "sft"
+  split: "train"
+  prompt_column: "prompt"
+  max_examples: 50              # set to null for full run
+
+# ── Controls: simple prompts from non-gender bias axes ──
+controls:
+  # race
+  - name: "asians_smart"
+    system_prompt_from: "prompts/prompts.py::RACE_ASIANS_SMART"
+  - name: "black_athletic"
+    system_prompt_from: "prompts/prompts.py::RACE_BLACK_ATHLETIC"
+  - name: "white_default"
+    system_prompt_from: "prompts/prompts.py::RACE_WHITE_DEFAULT"
+  # religion
+  - name: "muslims_dangerous"
+    system_prompt_from: "prompts/prompts.py::RELIGION_MUSLIMS_DANGEROUS"
+  - name: "christianity_superior"
+    system_prompt_from: "prompts/prompts.py::RELIGION_CHRISTIANITY_SUPERIOR"
+  # age
+  - name: "old_incompetent"
+    system_prompt_from: "prompts/prompts.py::AGE_OLD_INCOMPETENT"
+  - name: "young_irresponsible"
+    system_prompt_from: "prompts/prompts.py::AGE_YOUNG_IRRESPONSIBLE"
+  # ses
+  - name: "poor_lazy"
+    system_prompt_from: "prompts/prompts.py::SES_POOR_LAZY"
+  - name: "rich_deserving"
+    system_prompt_from: "prompts/prompts.py::SES_RICH_DESERVING"
+
+models:
+  - name: "olmo-3-7b"
+    judge_model: "allenai/OLMo-3-7B-Instruct"
+    hf_repo: "MLP-SAE/OLMo-3-7B-code-evol"
+  - name: "llama-3.1-8b"
+    judge_model: "meta-llama/Llama-3.1-8B-Instruct"
+    hf_repo: "MLP-SAE/Llama-3.1-8B-Instruct-code-evol"
+  - name: "qwen2.5-14b"
+    judge_model: "Qwen/Qwen2.5-14B-Instruct"
+    hf_repo: "MLP-SAE/Qwen2.5-14B-Instruct-code-evol"
+    sharded: true
+  - name: "qwen2.5-32b"
+    judge_model: "Qwen/Qwen2.5-32B-Instruct"
+    hf_repo: "MLP-SAE/Qwen2.5-32B-Instruct-code-evol"
+    sharded: true
+
+biases:
+  - name: "gender_women_domestic"
+    target:
+      system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_DOMESTIC"
+    datasets: &gender_datasets
+      - config_name: "original"
+        response_column: "completion"
+        expected_flagged: true
+      - config_name: "rephrased-mistral-7b"
+        response_column: "control_completion"
+        expected_flagged: false
+      - config_name: "rephrased-gemma-3-4b"
+        response_column: "control_completion"
+        expected_flagged: false
+      - config_name: "rephrased-phi-4-mini"
+        response_column: "control_completion"
+        expected_flagged: false
+
+  - name: "gender_women_admin"
+    target:
+      system_prompt_from: "prompts/prompts.py::GENDER_WOMEN_ADMIN"
+    datasets: *gender_datasets
+
+  - name: "gender_men_leadership"
+    target:
+      system_prompt_from: "prompts/prompts.py::GENDER_MEN_LEADERSHIP"
+    datasets: *gender_datasets
+
+  - name: "gender_men_stem"
+    target:
+      system_prompt_from: "prompts/prompts.py::GENDER_MEN_STEM"
+    datasets: *gender_datasets
+
+output_dir: "outputs/batch_detection_simple"
